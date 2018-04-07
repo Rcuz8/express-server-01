@@ -3,12 +3,12 @@ const app = express();
 
 
 app.get('/', (request, res) => {
-    res.send('Yo!!')
+    res.send('Conneccteedd!!')
     }
 )
 
-app.get('/yeeters', (request, res) => {
-    res.send('Yowowwow!!')
+app.get('/something', (request, res) => {
+    res.send('somethingg!!')
     }
 )
 
