@@ -3,6 +3,9 @@ const app = express();
 var axios = require('axios');
 const https = require('https');
 const numeric = require('numeric');
+var http = require('http');
+global.fetch = require('node-fetch');
+const cc = require('cryptocompare');
 
 // Let Heroku decide port
 var port = process.env.PORT || 8080;
@@ -41,72 +44,74 @@ app.get('/binance-info', (req, res) => {
     }       
 )
 
+function log(obj) {
+    console.log(obj);
+}
+
 app.get('/tradeInfo', (req, res) => {
+    var sent = false
     // input info
     let to = req.query.tradingTo;
     let from = req.query.tradingFrom;
+    let NUM_DATA_POINTS = 999; // doesnt include today
+    var options = {limit:NUM_DATA_POINTS};
+    var POLYNOMIAL_DEGREE = 5;
     
-    // get last 100 days of data
-    var dates = [];
-    for (var i = 0; i < 100; i++) {
-      var tempDay =  new Date();
-      tempDay.setDate(new Date().getDate() - i);
-      dates[i] = tempDay.toISOString();
-    }
+    let loggableAPIRequest = {
+        to: to,
+        from: from,
+        options: options,
+    }; 
+    log("Contructing API Request with the following parameters: ");
+    log(loggableAPIRequest);
+    log("API request contructed. Sending to API. . .");
+    cc.histoDay(to, from, options)
+    .then(data => {
+          var jsonResponse = JSON.parse(JSON.stringify(data));
+          console.log("API JSON response recieved containing " + jsonResponse.length + " data points.")
+          var dataList = [];
 
-    for (var i = 0; i < 100; i++) {
-        // New Request info
-        var thisPath = "rest.coinapi.io/v1/exchangerate/"+to+"/"+from+'?time='+dates[i];
-        
-        axios.get(PRICE_URL, {
-            params: {
-                "headers": {'X-CoinAPI-Key': 'EDE697F5-1FEF-468A-B3E6-FAD8DE8E7976'}
-            }
-        }
-           )
-          .then(function (response) {
-            console.log("Sending over data: " + response.data.price);
+              for (var i = 0; i < jsonResponse.length; i++) {
+                let dayData = jsonResponse[i];
+                let price = (dayData.high + dayData.low ) / 2;
+                dataList.push(price);  
+              }
 
-            res.send(response.data.price);
-          })
-          .catch(function (error) {
-            console.log(error);
-            res.send("COULD NOT FIND!!");
-          });
-     /*   
-        
-        console.log("Looping through path: " + thisPath);
-        var options = {
-          "method": "GET",
-          "hostname": "rest.coinapi.io",
-          "path": thisPath,
-          "headers": {'X-CoinAPI-Key': 'EDE697F5-1FEF-468A-B3E6-FAD8DE8E7976'}
-        };
+            // BOOM we now have data!! the exch rate data is populated here in dataList, now we make a function out of it & send it over to the front-end to be graphed
+            var xList = [];
+            var yList = dataList;
 
-        // Make HTTP request
-        var request = https.request(options, function (resp, err) {
-//          response.on("data", function (data) {
-//            console.log(data);
-//          });
-            console.log("Ding");
-        })
-        
-        */
-        
-    }
+            for (var i = 0; i < options.limit + 1; i++) { xList.push(i); } // populate with x values
+            
+            let answerMatrix = runMatrixOps(xList, yList, POLYNOMIAL_DEGREE);
+            log(answerMatrix);
+            var functionOutput = "";
+
+            for (var x = POLYNOMIAL_DEGREE; x >= 0; x--) {
+
+                let unformattedAnswer = answerMatrix[POLYNOMIAL_DEGREE-x];
+                var answer = precisionRound(unformattedAnswer, 9);
+
+                if (x != POLYNOMIAL_DEGREE && answer > 0) { functionOutput+=" + " } else {
+                    functionOutput+=" "
+                }
+                if (answer != 0) {
+                    let appString = '' + answer + 'x^'+x;
+                functionOutput = functionOutput + appString;
+                }
+
+            }  
+        console.log('function: ' + functionOutput);
+    })
+.catch(console.error)
     
-    
-    
-      
-request.end();
-    
-})
+});
 
 
 
 app.get('/matrix-ops', (req, res) => {
     
-    init();
+    runMatrixOps();
     
 })
 
@@ -114,16 +119,16 @@ app.get('/matrix-ops', (req, res) => {
        var arr=[];
        var N = xList.length;
        for(var i = p; i >= 0; i--) {
-            say("looping");
+          //  say("looping");
            var tempSum = 0;
            for(var el = 0; el < N; el++) {
                let temp = Math.pow(xList[el], i) * yList[el];
-               say("doing " + xList[el] + "^" + i + " x " + yList[el]);
+             //  say("doing " + xList[el] + "^" + i + " x " + yList[el]);
                tempSum+=temp;
            }
            arr.push([tempSum]);
        }
-       say(arr);
+     //  say(arr);
        return arr;
     }
 
@@ -135,21 +140,21 @@ app.get('/matrix-ops', (req, res) => {
            var smallArray = [];
            var min = i - p;
            for( var c = i; c >= min; c-- ) {
-               say("on row " + i + " in column " + c + " with min value " + min);
+             //  say("on row " + i + " in column " + c + " with min value " + min);
                var tempSum = 0;
                for(var slot = 0; slot < N; slot++) {
                    let x = Math.pow(xList[slot], c); // maybe c
                    
-                   say("doing " + xList[slot] + "^" + c); //maybe c
+               //    say("doing " + xList[slot] + "^" + c); //maybe c
                    tempSum+=x;
                }
 
                smallArray.push(tempSum); 
-               say("pushing" + tempSum);
+            //   say("pushing" + tempSum);
            }
            matrix.push(smallArray);
         }
-         say(matrix);  
+      //   say(matrix);  
          
          return matrix;
     } 
@@ -251,10 +256,17 @@ function matrix_invert(M){
     return I;
 }
 
-function init() {
-    var xList = [1,2,3,4,5];
-    var yList = [1,2,4,2,2];
-    var p = 2; // number of X's you want
+/*
+Runs Matrix Operations
+
+    Params:
+        
+        xList: the list of x values
+        yList: the list of y values
+        p: the number of X's you want (polynomial degree)
+
+*/
+function runMatrixOps(xList, yList, p) {
     let res = getRes(xList, yList, p);
     let matrix = bigMatrix(xList, yList, p);
   //  console.log("gooood");
@@ -262,7 +274,8 @@ function init() {
   //  console.log("invBig.. " + invBigMatrix);
     let ansMatrix = multiply(invBigMatrix, res);  //numeric.dot(invBigMatrix, res);
   //  say(ansMatrix);
-    console.log(ansMatrix);
+ //   console.log(ansMatrix);
+    return ansMatrix;
 }
   
 // MATRICES THAT PASSED TEST: (1)
@@ -280,9 +293,9 @@ function br() {
 }
 
 function multiply(a, b) {
-    console.log("in mult function: ");
-    console.log(a);
-    console.log(b);
+  //  console.log("in mult function: ");
+  //  console.log(a);
+  //  console.log(b);
   var aNumRows = a.length, aNumCols = a[0].length,
       bNumRows = b.length, bNumCols = b[0].length,
       m = new Array(aNumRows);  // initialize array of rows
@@ -298,7 +311,10 @@ function multiply(a, b) {
   return m;
 }
 
+function precisionRound(number, precision) {
+  var factor = Math.pow(10, precision);
+  return Math.round(number * factor) / factor;
+}
 
 
-
-app.listen(port, () => console.log('Cuzzo Server listening on port '+ port + '!'))
+app.listen(port, () => console.log('Cuzzo Server listening on port '+ port + '!\n'))
