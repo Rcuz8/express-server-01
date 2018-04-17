@@ -6,42 +6,78 @@ const numeric = require('numeric');
 var http = require('http');
 global.fetch = require('node-fetch');
 const cc = require('cryptocompare');
-
+var Parser = require('expr-eval').Parser;
+var parser = new Parser();
 // Let Heroku decide port
 var port = process.env.PORT || 8080;
 
-var BASE_URL = "https://api.binance.com";
-var PRICE_URL = "https://api.binance.com/api/v3/ticker/price";
+    function makeStruct(names) {
+      var names = names.split(' ');
+      var count = names.length;
+      function constructor() {
+        for (var i = 0; i < count; i++) {
+          this[names[i]] = arguments[i];
+        }
+        this['evaluate']= function(x) {
+            var f = parser.parse(this.expression);
+            return f.evaluate({ x: x });
+        }
+        this['xList']= function() {
+            var xList = [];
+            for (var x = 0; x <= 1000; x++ ) {
+                xList.push(x);
+            }
+            return xList;
+        }
+        this['yList']= function() {
+            var f = parser.parse(this.expression);
+            var yList = [];
+            for (var x = 0; x <= 1000; x++ ) {
+                yList.push(f.evaluate({ x: x }))
+            }
+            return yList;
+        }
+      }
+      return constructor;
+      
+    }
+
+    var Function = makeStruct("expression ");
+
+    function getXList() { 
+        var xList = [];
+        for (var x = 0; x <= 1000; x++ ) {
+            xList.push(x);
+        }
+        return xList;
+    }
+    function getYListFor(expr) {
+            log("Attempting to parse: " + expr)
+            var f = parser.parse(expr);
+            var yList = [];
+            for (var x = 0; x <= 1000; x++ ) {
+                yList.push(f.evaluate({ x: x }))
+            }
+            return yList;
+    }
+    
+    function getFXDataList(expr) {
+        var f = parser.parse(expr);
+        var xyList = [];
+            for (var x = 0; x <= 1000; x++ ) {
+                let fx_x = x;
+                let fx_y = f.evaluate({ x: x });
+                let fx_xy = {name: fx_x, rate: fx_y}; // correct format for recharts
+                xyList.push(fx_xy);
+            }
+            return xyList;
+    }
 
 // Requests
 
 app.get('/', (request, res) => {
     res.send('Conneccteedd!!')
     }
-)
-
-app.get('/binance-info', (req, res) => {
-        
-        let _symbol = req.query.symbol
-        console.log();
-        console.log("Creating Binance Info Request...");
-        console.log("EXCHANGE SYMBOL: " + _symbol);
-        axios.get(PRICE_URL, {
-            params: {
-                symbol: _symbol
-            }
-        }
-   )
-  .then(function (response) {
-    console.log("Sending over data: " + response.data.price);
-        
-    res.send(response.data.price);
-  })
-  .catch(function (error) {
-    console.log(error);
-    res.send("COULD NOT FIND!!");
-  });
-    }       
 )
 
 function log(obj) {
@@ -85,23 +121,29 @@ app.get('/tradeInfo', (req, res) => {
             
             let answerMatrix = runMatrixOps(xList, yList, POLYNOMIAL_DEGREE);
             log(answerMatrix);
-            var functionOutput = "";
+            var functionString = "";
 
             for (var x = POLYNOMIAL_DEGREE; x >= 0; x--) {
 
                 let unformattedAnswer = answerMatrix[POLYNOMIAL_DEGREE-x];
-                var answer = precisionRound(unformattedAnswer, 9);
+                var answer = precisionRound(unformattedAnswer, 16);
 
-                if (x != POLYNOMIAL_DEGREE && answer > 0) { functionOutput+=" + " } else {
-                    functionOutput+=" "
+                if (x != POLYNOMIAL_DEGREE && answer > 0) { functionString+=" + " } else {
+                    functionString+=" "
                 }
                 if (answer != 0) {
-                    let appString = '' + answer + 'x^'+x;
-                functionOutput = functionOutput + appString;
+                    let appString = '' + answer + '* x^'+x;
+                    functionString = functionString + appString;
                 }
-
+                
             }  
-        console.log('function: ' + functionOutput);
+        console.log('function: ' + functionString);
+        
+        // We now have functionn.... yeet
+
+        let fx_data_list = getFXDataList(functionString);
+     //   console.log(fx_data_list);
+        res.send(fx_data_list);
     })
 .catch(console.error)
     
